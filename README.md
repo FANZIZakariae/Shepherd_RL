@@ -1,96 +1,166 @@
-# 🐑 Shepherd RL: Autonomous Sheep Herding with Reinforcement Learning
+# ShepherdRL – Progressive Robotic Shepherding with Rule-Based and RL Agents
 
-This project implements Reinforcement Learning (RL) agents to solve the "Shepherd Problem," where an autonomous agent (the dog) must herd sheep into a specific goal area while avoiding obstacles. 
+ShepherdRL is a **custom reinforcement learning environment** for robotic shepherding inspired by biologically grounded flocking dynamics (e.g., the Strömbom model).  
+The environment is structured into **four progressive problem levels**, enabling curriculum learning from simple deterministic control to multi-agent coordination.
 
-It features a complete **Streamlit Dashboard** for training, visualizing, and benchmarking different RL agents (PPO, TD3, DQN) against a classic Rule-Based baseline.
+The project follows a **Gym-style API**, includes **real-time visualization using Pygame**, and supports both **rule-based agents** and **reinforcement learning agents** (e.g., PPO via Stable-Baselines3).
 
 ---
 
-## 📂 Project Structure
+## Installation: Create a Python environment (recommended)
 
-The project is organized into three difficulty levels to facilitate curriculum learning:
-* **Level 1:** Single Sheep, No Obstacles.
-* **Level 2:** Single Sheep, Static Obstacles.
-* **Level 3:** Multiple Sheep, Static Obstacles.
-
-The directory structure is critical for the app to function correctly:
-
-```text
-rl_shepherd-main/
-├── agents/             # Agent implementations (PPO, TD3, DQN, RuleBased)
-├── app/                # Streamlit Dashboard Code
-│   ├── streamlit_app.py      # Main Hub Page
-│   └── pages/
-│       ├── 1_Training.py     # Training Interface (with embedded TensorBoard)
-│       ├── 2_Demo.py         # Visual Demonstration (Pygame rendering)
-│       └── 3_Test.py         # Benchmarking & Stress Testing
-├── envs/               # Custom Shepherd Gymnasium Environment
-├── logs/               # TensorBoard Logs (Auto-sorted by Level/Agent)
-├── models/             # Saved Agent Checkpoints (Auto-sorted by Level/Agent)
-└── requirements.txt    # Python dependencies
-```
-🚀 Installation
-Clone the repository:
-
-```Bash
-git clone [https://github.com/your-username/rl_shepherd.git](https://github.com/your-username/rl_shepherd.git)
-cd rl_shepherd-main
-```
-Create a virtual environment (Recommended):
-
-```Bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Mac/Linux
-source venv/bin/activate
-```
-Install dependencies:
-
-```Bash
+```bash
+conda create -n shepherding python=3.12
+conda activate shepherding
 pip install -r requirements.txt
 ```
-🎮 Usage
-Launch the main dashboard hub using Streamlit:
 
-```Bash
-streamlit run app/streamlit_app.py
+## Project Structure
+
+```bash
+shepherd_rl/
+│
+├─ envs/
+│  └─ shepherd_env.py        # Gym environment
+│
+├─ agents/
+│  ├─ rule_based_agent.py   # Heuristic agent
+│  ├─ rl_agent.py           # RL utilities
+│  └─ CNN_QN.py           # DQN agent with pytorch
+│
+├─ test.py                  # Run simulation (rule-based or RL)
+├─ train.py                 # Train RL agents (Levels 3 & 4)
+├─ models/                  # Saved RL models (.zip)
+└─ README.md
 ```
-### 1. 🏋️ Training Deck
-* **Configure:** Select your algorithm (PPO, TD3) and difficulty parameters. The app automatically detects if you are in **Level 1**, **2**, or **3** based on your settings.
-* **Monitor:** TensorBoard launches automatically within the app to track reward curves in real-time.
-* **Save:** Models are automatically saved to `models/level_X/agent_type/` with names synchronized to their log IDs.
-
-### 2. 🎮 Demo Mode
-* **Visualize:** Watch your trained agents in action via a Pygame-rendered video stream.
-* **Control:** Use the **"View Scale"** slider to resize the simulation window to fit your screen.
-* **Compare:** Switch instantly between your trained RL models and the Rule-Based heuristic agent.
-
-### 3. 🧪 Benchmarking (Test Page)
-* **Evaluate:** Run headless simulations (no rendering) to gather statistical data.
-* **Metrics:** Compare **Success Rate**, **Timeout Rate**, and **Average Reward** across hundreds of episodes.
-* **Side-by-Side:** Select multiple trained models to see how they stack up against the Rule-Based baseline in a comparative table.
 
 ---
 
-## 🛠️ Agents Implemented
-* **Rule-Based:** A heuristic algorithm using geometric forces (repulsion/attraction) to guide sheep.
-* **PPO (Proximal Policy Optimization):** On-policy gradient method, stable and efficient.
-* **TD3 (Twin Delayed DDPG):** Off-policy method, excellent for continuous control tasks.
-* **DQN (Deep Q-Network):** For discrete action spaces or pixel-based observations.
+## Problem Levels
 
-## 📝 Requirements
-* Python 3.8+
-* Streamlit
-* Stable Baselines3
-* Pygame
-* Gymnasium / OpenAI Gym
-* TensorBoard
-* Torch
-* Pandas (for benchmarking tables)
+### Level 1 – Basic Shepherding (Sleepy Sheep)
 
-## 🤝 Contributing
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
+**Purpose:**  
+Learn fundamental shepherd–sheep interaction in a fully deterministic setting.
 
-## 📄 License
-[MIT](https://choosealicense.com/licenses/mit/)
+**Configuration:**
+- Single shepherd agent
+- No obstacles
+- Sheep are *sleepy* (static unless influenced)
+- Deterministic dynamics
+
+**Sheep Behavior:**
+- Sheep do not move unless the shepherd is close
+- When close, sheep move directly away from the shepherd
+
+**Training Variants:**
+- Number of sheep: **1, 2, or 3**
+
+---
+
+### Level 2 – Active Sheep (Random Motion)
+
+**Purpose:**  
+Introduce stochasticity and robustness requirements.
+
+**Configuration:**
+- Single shepherd agent
+- No obstacles
+- Variable number of sheep
+
+**Sheep Behavior:**
+- If the shepherd is far: sheep move randomly
+- If the shepherd is close: sheep move away from the shepherd
+
+---
+
+### Level 3 – Obstacle-Constrained Shepherding
+
+**Purpose:**  
+Introduce spatial constraints and navigation challenges.
+
+**Configuration:**
+- Single shepherd agent
+- One circular obstacle in the environment
+
+**Obstacle Rules:**
+- Sheep cannot enter the obstacle area
+- Shepherd cannot pass through the obstacle
+
+**Sheep Behavior:**
+- Same as Level 2
+
+---
+
+### Level 4 – Alternating Multi-Agent Shepherding
+
+**Purpose:**  
+Learn coordination under **turn-based multi-agent control**.
+
+**Configuration:**
+- Two trained shepherd agents
+- Shared environment and shared goal
+- No simultaneous actions
+
+**Control Mechanism:**
+- Only one shepherd acts at each timestep
+- Agents alternate actions deterministically
+
+---
+
+## Sheep Behavior Summary
+
+| Condition | Sheep Action |
+|--------|-------------|
+| Shepherd close | Move away from shepherd |
+| Shepherd far (Level 1) | Remain static |
+| Shepherd far (Levels 2–4) | Random movement |
+| Inside goal | Locked, cannot exit |
+| Inside obstacle | Not allowed |
+
+---
+
+## Rule-Based Shepherd Agents
+
+Three **rule-based shepherd agents** are included for benchmarking, debugging, and comparison against RL policies.
+
+---
+
+### 1. Standard Rule-Based Shepherd
+
+**Behavior:**
+- Selects the sheep furthest from the goal
+- Computes a driving point behind the sheep along the goal → sheep line
+- Moves toward the driving point to push the sheep toward the goal
+
+**Characteristics:**
+- Deterministic
+- Goal-driven
+
+---
+
+### 2. Lazy Shepherd
+
+
+**Behavior:**
+- Always outputs a **constant action**
+- Action does not depend on sheep positions, goal location, or environment state
+- No feedback or adaptation
+
+---
+
+### 3. Tipsy Shepherd
+
+**Behavior:**
+- Actions are sampled **entirely at random**
+- No dependence on observations or goal
+- No internal logic or strategy
+
+---
+
+## Future Extensions
+
+- Multiple and dynamic obstacles
+- Communication between shepherd agents
+- Competitive multi-goal scenarios
+- Domain randomization for sim-to-real transfer

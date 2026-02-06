@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 from envs.shepherd_env import ShepherdEnv
 try:
     from agents.rule_based_agent import RuleBasedShepherd
-    from agents.CNN_QN import ImageDQNAgent, N_ACTIONS, render_env_to_rgb, ANGLES, transform
+    from agents.CNN_QN_agent import ImageDQNAgent, N_ACTIONS, render_env_to_rgb, ANGLES, transform
 except ImportError:
     pass
     
