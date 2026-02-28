@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import pygame
 import sys
+import pandas as pd
 
 # Add path to sys to ensure imports work
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
@@ -29,8 +30,15 @@ with st.sidebar:
     st.header("🎮 Demo Controls")
     
     st.subheader("1. Environment")
-    num_sheep = st.slider("Number of sheep", 1, 5, 1)
+    num_sheep = st.slider("Total Number of Sheep", 1, 5, 1)
+    
+    pre_solved_sheep = st.slider("Pre-Solved Sheep (Spawn in Goal)", 0, num_sheep, 0)
+    
     obstacle_radius = st.slider("Obstacle radius", 0.0, 2.0, 0.0, 0.1)
+    
+    # --- NEW: JITTER ---
+    sheep_jitter = st.slider("Sheep Jitter (Noise)", 0.0, 0.2, 0.0, 0.01)
+    
     goal_radius = st.slider("Goal radius", 0.1, 2.0, 0.7, 0.1)
     max_steps = st.number_input("Max steps", value=500)
 
@@ -46,18 +54,20 @@ with st.sidebar:
     
     # B. Dynamic Model Selector with LEVELS
     if agent_type != "ruleBase":
-        # New Step: Select Level
-        selected_level = st.selectbox("Select Training Level", ["level_1", "level_2", "level_3"])
-        
-        # Path: models/level_X/agent_type/
+        # Updated Levels
+        selected_level = st.selectbox("Select Training Level", ["level_1", "level_2", "level_3", "level_4"])
         base_model_dir = os.path.join("models", selected_level, agent_type.lower())
         
         available_runs = []
         if os.path.exists(base_model_dir):
-            files = [f for f in os.listdir(base_model_dir) if f.endswith(".zip")]
-            for f in files:
-                clean_name = f.replace("_model.zip", "")
-                available_runs.append(clean_name)
+            for f in os.listdir(base_model_dir):
+                full_p = os.path.join(base_model_dir, f)
+                if os.path.isdir(full_p):
+                     available_runs.append(f)
+                elif f.endswith(".zip") or f.endswith(".pth"):
+                     clean_name = f.replace("_model.zip", "").replace(".pth", "")
+                     available_runs.append(clean_name)
+            
             # Sort naturally
             available_runs.sort(key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else x)
 
@@ -68,7 +78,26 @@ with st.sidebar:
             selected_run = st.selectbox("Select Trained Model", available_runs)
 
         if selected_run != "None":
-            checkpoint_path = os.path.join(base_model_dir, f"{selected_run}_model.zip")
+            folder_path = os.path.join(base_model_dir, selected_run)
+            
+            if os.path.isdir(folder_path):
+                # Look inside folder
+                if agent_type == "DQN":
+                     if os.path.exists(os.path.join(folder_path, "best_model.pth")):
+                        checkpoint_path = os.path.join(folder_path, "best_model.pth")
+                     elif os.path.exists(os.path.join(folder_path, "final_model.pth")):
+                        checkpoint_path = os.path.join(folder_path, "final_model.pth")
+                else: # PPO / TD3
+                     if os.path.exists(os.path.join(folder_path, "best_model.zip")):
+                        checkpoint_path = os.path.join(folder_path, "best_model.zip")
+                     elif os.path.exists(os.path.join(folder_path, "final_model.zip")):
+                        checkpoint_path = os.path.join(folder_path, "final_model.zip")
+            else:
+                # Legacy file support
+                if agent_type == "DQN":
+                    checkpoint_path = os.path.join(base_model_dir, f"{selected_run}.pth")
+                else:
+                    checkpoint_path = os.path.join(base_model_dir, f"{selected_run}_model.zip")
     
     st.markdown("---")
     
@@ -79,7 +108,6 @@ with st.sidebar:
 # Main Page Layout
 # -------------------------
 st.title("🎮 Agent Demonstration")
-st.markdown("Visualize the behavior of your trained agents in real-time.")
 
 def get_pygame_frame(env, scale=0.65):
     if not pygame.get_init():
@@ -94,8 +122,15 @@ def get_pygame_frame(env, scale=0.65):
     return np.array(Image.fromarray(frame).resize(new_size, Image.Resampling.BILINEAR))
 
 if run_demo:
-    env = ShepherdEnv(n_sheep=num_sheep, max_steps=max_steps,
-                      obstacle_radius=obstacle_radius, goal_radius=goal_radius)
+    # --- 1. Init Environment ---
+    env = ShepherdEnv(
+        n_sheep=num_sheep, 
+        max_steps=max_steps,
+        obstacle_radius=obstacle_radius, 
+        goal_radius=goal_radius,
+        n_sheep_in_goal=pre_solved_sheep,
+        sheep_jitter=sheep_jitter # <--- PASSED HERE
+    )
 
     agent = None
     with st.status(f"Loading {agent_type} agent...", expanded=True) as status:
@@ -105,7 +140,7 @@ if run_demo:
                 status.write("Rule-Based Logic Loaded.")
             elif agent_type in ["PPO", "TD3"]:
                 if checkpoint_path and os.path.exists(checkpoint_path):
-                    status.write(f"Loading `{os.path.basename(checkpoint_path)}` from `{selected_level}`...")
+                    status.write(f"Loading `{os.path.basename(checkpoint_path)}`...")
                     if agent_type == "PPO":
                         agent = PPO.load(checkpoint_path, env=env, device="cpu")
                     else:
@@ -124,39 +159,73 @@ if run_demo:
             st.error(f"Error: {e}")
             st.stop()
 
-    col_video, col_stats = st.columns([3, 1])
-    with col_stats:
-        st.markdown("### Live Stats")
-        reward_metric = st.empty()
-        step_metric = st.empty()
+    # --- 2. Live Dashboard Layout ---
+    col_video, col_graph = st.columns([1.5, 2])
     
     with col_video:
+        st.markdown("### 🎥 Agent View")
         frame_placeholder = st.empty()
+        reward_metric = st.empty()
 
+    with col_graph:
+        st.markdown("### 📈 Cumulative Reward History")
+        chart_placeholder = st.empty()
+
+    # --- 3. Simulation Loop ---
     obs, _ = env.reset()
     done = False
     total_reward = 0
     
+    # Data Tracking
+    cumulative_breakdown = {
+        "Progress (Push)": 0.0,
+        "Target Proximity": 0.0,
+        "Goal Entry Bonus": 0.0,
+        "Movement Cost": 0.0,
+        "Step Cost": 0.0,
+        "Win Bonus": 0.0,
+        "Fail Penalty": 0.0
+    }
+    
+    history_df = pd.DataFrame(columns=list(cumulative_breakdown.keys()))
+    
     while not done:
+        # A. Action
         if agent_type == "ruleBase":
             action = agent.act(obs)
         elif agent_type == "DQN":
-            state = transform(render_env_to_rgb(env))
-            action_idx = agent.select_action(state)
+            state = torch.from_numpy(render_env_to_rgb(env)).float().permute(2, 0, 1)
+            action_idx = agent.select_action(state, training=False)
             action = [ANGLES[action_idx]]
         else:
             action, _ = agent.predict(obs, deterministic=True)
 
+        # B. Step
         obs, reward, terminated, truncated, info = env.step(action)
         done = terminated or truncated
         total_reward += reward
 
+        # C. Update Data
+        if "reward_breakdown" in info:
+            for k, v in info["reward_breakdown"].items():
+                if k in cumulative_breakdown:
+                    cumulative_breakdown[k] += v
+        
+        new_row = pd.DataFrame([cumulative_breakdown])
+        history_df = pd.concat([history_df, new_row], ignore_index=True)
+
+        # D. Render Video
         frame = get_pygame_frame(env, scale=render_scale)
         if frame is not None:
-            frame_placeholder.image(Image.fromarray(frame), caption="Agent View", use_container_width=False)
+            frame_placeholder.image(Image.fromarray(frame), use_container_width=True)
 
-        reward_metric.metric("Total Reward", f"{total_reward:.2f}")
-        step_metric.metric("Current Step", f"{env.steps}")
+        # E. Render Graph & Metrics
+        reward_metric.metric("Total Reward", f"{total_reward:.2f}", f"Step: {env.steps}")
+        chart_placeholder.line_chart(history_df)
+
         time.sleep(0.05)
 
-    st.success(f"Episode Finished! Final Reward: **{total_reward:.2f}**")
+    if cumulative_breakdown.get("Win Bonus", 0) > 0:
+        st.success(f"🏆 Episode Won! Final Reward: **{total_reward:.2f}**")
+    else:
+        st.error(f"💀 Episode Failed. Final Reward: **{total_reward:.2f}**")

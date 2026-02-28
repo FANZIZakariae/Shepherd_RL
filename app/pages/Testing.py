@@ -33,12 +33,17 @@ with st.sidebar:
     
     # 1. Level Selection
     st.subheader("1. Scenario Level")
-    selected_level = st.selectbox("Select Level", ["level_1", "level_2", "level_3"])
+    selected_level = st.selectbox("Select Level", ["level_1", "level_2", "level_3", "level_4"])
     
     # 2. Env Params
     with st.expander("🌍 Environment Parameters", expanded=False):
         num_sheep = st.slider("Number of sheep", 1, 5, 1)
+        pre_solved_sheep = st.slider("Pre-Solved Sheep (Spawn in Goal)", 0, num_sheep, 0)
         obstacle_radius = st.slider("Obstacle radius", 0.0, 2.0, 0.0, 0.1)
+        
+        # --- NEW: JITTER ---
+        sheep_jitter = st.slider("Sheep Jitter (Noise)", 0.0, 0.2, 0.0, 0.01)
+
         goal_radius = st.slider("Goal radius", 0.1, 2.0, 0.7, 0.1)
         max_steps = st.number_input("Max steps", value=500)
 
@@ -57,15 +62,52 @@ with st.sidebar:
     
     # Trained Models Selection
     available_models = [] # Format: ("Type", "Name", "Path")
+    
+    # Helper for natural sorting (so Run_2 comes before Run_10)
+    def natural_sort_key(s):
+        return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', s)]
+
     for algo in ["ppo", "td3", "dqn"]:
         search_dir = os.path.join("models", selected_level, algo)
+        
         if os.path.exists(search_dir):
-            files = [f for f in os.listdir(search_dir) if f.endswith(".zip") or f.endswith(".pth")]
-            for f in files:
-                clean_name = f.replace("_model.zip", "").replace(".zip", "")
-                full_path = os.path.join(search_dir, f)
-                available_models.append((algo.upper(), clean_name, full_path))
+            # List all entries and sort them naturally
+            entries = sorted(os.listdir(search_dir), key=natural_sort_key)
+            
+            for entry in entries:
+                full_path = os.path.join(search_dir, entry)
+                
+                # --- LOGIC UPDATE: CHECK FOLDERS FOR BEST MODEL ---
+                if os.path.isdir(full_path):
+                    # It's a run folder (e.g. "PPO_1")
+                    # Check for best_model then final_model
+                    model_found_path = None
+                    label_suffix = ""
+
+                    if algo == "dqn":
+                        candidates = [("best_model.pth", "Best"), ("final_model.pth", "Final")]
+                    else:
+                        candidates = [("best_model.zip", "Best"), ("final_model.zip", "Final")]
+                    
+                    for filename, label in candidates:
+                        check_path = os.path.join(full_path, filename)
+                        if os.path.exists(check_path):
+                            model_found_path = check_path
+                            label_suffix = f" ({label})"
+                            break # Prioritize Best, stop if found
+                    
+                    if model_found_path:
+                        display_name = f"{entry}{label_suffix}"
+                        available_models.append((algo.upper(), display_name, model_found_path))
+
+                # --- LOGIC UPDATE: SUPPORT LEGACY FILES ---
+                elif entry.endswith(".zip") or entry.endswith(".pth"):
+                    clean_name = entry.replace("_model.zip", "").replace(".zip", "").replace(".pth", "")
+                    available_models.append((algo.upper(), clean_name, full_path))
     
+    if not available_models:
+        st.info(f"No trained models found in `models/{selected_level}`")
+
     model_options = [f"{m[0]}: {m[1]}" for m in available_models]
     selected_model_strings = st.multiselect("Select Trained Models", model_options)
     
@@ -98,6 +140,7 @@ def load_trained_agent(algo, path, env):
         elif algo == "DQN":
             device = "cuda" if torch.cuda.is_available() else "cpu"
             agent = ImageDQNAgent(n_actions=N_ACTIONS, lr=1e-4, gamma=0.99, device=device)
+            # Handle loading specific paths safely
             agent.q_net.load_state_dict(torch.load(path, map_location=device))
             agent.q_net.eval()
             return agent
@@ -115,8 +158,6 @@ def evaluate_agent(agent, agent_type, env, n_episodes):
     progress_bar = st.progress(0)
     
     for i in range(n_episodes):
-        # IMPORTANT: For LazyShepherd, we must reset the internal state (random angle)
-        # at the start of every episode, otherwise it tests the SAME angle 50 times.
         if hasattr(agent, 'reset'):
             agent.reset()
             
@@ -126,11 +167,12 @@ def evaluate_agent(agent, agent_type, env, n_episodes):
         episode_steps = 0
         
         while not done:
-            if agent_type in ["Rule-Based", "Baseline"]:
+            if agent_type == "Rule-Based":
                 action = agent.act(obs)
             elif agent_type == "DQN":
-                state = transform(render_env_to_rgb(env))
-                action_idx = agent.select_action(state)
+                state_np = render_env_to_rgb(env)
+                state = torch.from_numpy(state_np).float().permute(2, 0, 1)
+                action_idx = agent.select_action(state, training=False)
                 action = [ANGLES[action_idx]]
             else:
                 action, _ = agent.predict(obs, deterministic=True)
@@ -170,8 +212,14 @@ if start_eval:
         st.stop()
 
     # 2. Init Environment
-    env = ShepherdEnv(n_sheep=num_sheep, max_steps=max_steps, 
-                      obstacle_radius=obstacle_radius, goal_radius=goal_radius)
+    env = ShepherdEnv(
+        n_sheep=num_sheep, 
+        max_steps=max_steps, 
+        obstacle_radius=obstacle_radius, 
+        goal_radius=goal_radius,
+        n_sheep_in_goal=pre_solved_sheep,
+        sheep_jitter=sheep_jitter # <--- PASSED HERE
+    )
 
     results_data = []
 
@@ -185,7 +233,6 @@ if start_eval:
     for baseline_name in selected_baselines:
         with st.status(f"Testing Agent {current_agent_idx}/{total_agents}: **{baseline_name}**...", expanded=False) as status:
             
-            # Instantiate the correct class
             if baseline_name == "Rule-Based":
                 agent_instance = RuleBasedShepherd()
             elif baseline_name == "Lazy Shepherd":
@@ -207,11 +254,9 @@ if start_eval:
         display_name = f"{algo}: {name}"
         
         with st.status(f"Testing Agent {current_agent_idx}/{total_agents}: **{display_name}**...", expanded=False) as status:
-            # Load
             agent = load_trained_agent(algo, path, env)
             
             if agent:
-                # Run Eval
                 metrics = evaluate_agent(agent, algo, env, n_episodes)
                 
                 metrics["Agent Name"] = name

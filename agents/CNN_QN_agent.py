@@ -112,15 +112,26 @@ class ImageDQNAgent:
         self.eps_decay = eps_decay
         self.steps = 0
 
-    def select_action(self, state, writer=None):
-        self.steps += 1
-        eps = self.eps_end + (self.eps_start - self.eps_end) * np.exp(-self.steps / self.eps_decay)
-        
-        if writer is not None:
-             writer.add_scalar("train/epsilon", eps, self.steps)
+    # In agents/CNN_QN.py
 
-        if random.random() < eps:
-            return random.randrange(self.n_actions)
+    def select_action(self, state, writer=None, training=True):
+        """
+        training (bool): If True, use epsilon-greedy exploration.
+                         If False, force greedy (best) action.
+        """
+        if training:
+            self.steps += 1
+            # Epsilon decay math
+            eps = self.eps_end + (self.eps_start - self.eps_end) * np.exp(-self.steps / self.eps_decay)
+            
+            if writer is not None:
+                 writer.add_scalar("train/epsilon", eps, self.steps)
+
+            # Random action (exploration)
+            if random.random() < eps:
+                return random.randrange(self.n_actions)
+        
+        # Greedy action (exploitation) - used for testing/demo
         with torch.no_grad():
             q_values = self.q_net(state.unsqueeze(0).to(self.device))
         return q_values.argmax(dim=1).item()
@@ -141,8 +152,15 @@ class ImageDQNAgent:
             target = rewards + self.gamma * (1 - dones) * next_q
         
         loss = F.mse_loss(q_values, target)
+
         self.optimizer.zero_grad()
         loss.backward()
+        
+        # --- ADD THIS LINE ---
+        # Clips gradients to prevent explosion (Max norm of 1.0 or 10.0 is common)
+        torch.nn.utils.clip_grad_norm_(self.q_net.parameters(), max_norm=10.0)
+        # ---------------------
+        
         self.optimizer.step()
         
         if writer is not None:
