@@ -1,9 +1,39 @@
-# ShepherdRL – Progressive Robotic Shepherding with Rule-Based and RL Agents
+# 🐑 ShepherdRL 
+**Progressive Robotic Shepherding with Rule-Based and RL Agents**
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/release/python-3120/)
+[![Gym API](https://img.shields.io/badge/API-OpenAI%20Gym-green.svg)](https://gymnasium.farama.org/)
+[![Stable Baselines3](https://img.shields.io/badge/RL-Stable%20Baselines3-purple.svg)](https://stable-baselines3.readthedocs.io/)
+
+<div align="center">
+  
+  <img src="assets/Demo.gif" alt="ShepherdRL Environment Demo" width="700"/>
+
+  <br>
+
+  ### 📄 [Read the Comprehensive Scientific Report (PDF)](assets/Report.pdf)
+  
+</div>
+
+---
+
+### 🔍 Understanding the Demo Video Data
+In the demonstration videos, the environment configuration is represented by a 5-parameter vector. For example, a setting shown as **`Level 3: (2, 1, 0.2, 0.02, 0.4)`** maps directly to the following environment parameters:
+* **`2`** — **Total number of sheep** in the environment.
+* **`1`** — **Pre-solved sheep** (sheep spawned permanently locked in the goal to assist with neural network input dimensionality during transfer learning).
+* **`0.2`** — **Obstacle radius** (spatial footprint of hazards).
+* **`0.02`** — **Noise / Jitter** (the magnitude of stochastic random movement applied to active sheep).
+* **`0.4`** — **Goal radius** (the target zone the shepherd must push the flock into).
+
+---
+
+## 📖 Overview
 
 ShepherdRL is a **custom reinforcement learning environment** for robotic shepherding inspired by biologically grounded flocking dynamics (e.g., the Strömbom model).  
 The environment is structured into **four progressive problem levels**, enabling curriculum learning from simple deterministic control to multi-agent coordination.
 
-The project follows a **Gym-style API**, includes **real-time visualization using Pygame**, and supports both **rule-based agents** and **reinforcement learning agents** (e.g., PPO via Stable-Baselines3).
+The project follows a standard **Gym-style API**, includes **real-time visualization using Pygame**, and supports both **rule-based heuristic agents** and **Deep Reinforcement Learning agents** (e.g., PPO via Stable-Baselines3, DQN).
 
 ---
 
